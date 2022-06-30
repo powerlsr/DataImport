@@ -1,0 +1,468 @@
+#!/bin/sh
+
+PATH=$PATH:$HOME/bin
+
+export PATH
+export ORACLE_BASE=/u01/app/oracle
+export ORACLE_HOME=$ORACLE_BASE/product/11.2.0/dbhome_1
+export ORACLE_SID=psbchd
+export NLS_LANG=AMERICAN_AMERICA.ZHS16GBK
+export ORACLE_OWNER=oracle
+export ORACLE_TERM=vt100
+export PATH=$PATH:$ORACLE_HOME/bin:$HOME/bin
+export PATH=$ORACLE_HOME/bin:$ORACLE_HOME/Apache/Apache/bin:$PATH
+LD_LIBRARY_PATH=$ORACLE_HOME/lib:/lib:/usr/lib:/usr/local/lib
+export LD_LIBRARY_PATH
+CLASSPATH=$ORACLE_HOME/JRE:$ORACLE_HOME/jlib:$ORACLE_HOME/rdbms/jlib
+CLASSPATH=$CLASSPATH:$ORACLE_HOME/network/jlib
+export CLASSPATH
+export EDITOR=vi
+
+
+#设置当前路径
+Currpath=/u01/apsd/sqlldr
+
+# 设置数据库sid,用户,密码
+sid=psbchd
+user=aps2
+passwd=aps2qaz
+
+# 设置ftp地址,用户,密码
+ftppath=/u01/ftp/aps
+
+#设置是否补录，1-补录，0-正常每天跑数
+flag=0
+
+#如果设置补录flag=1，需设置补录的交易日期
+if [ $flag = 1 ];then
+    LastDay=20141218
+else
+    # 获取前一天日期
+    LastDay=`date "+%Y%m%d" -d "1 day ago"`
+fi
+
+#中平数据文件标识串
+zp_file_flag=ZP_DATA
+#公司系统数据文件标识串
+gsxt_file_flag=99200000000_PROV_DATA
+
+# 设置sqlloader数据处理路径
+datapath=${Currpath}/Receipt/${LastDay}
+if [ ! -d ${datapath} ];then
+   mkdir -p ${datapath}
+fi
+
+# 设置本地数据下载路径
+downpath=${Currpath}/Download/${LastDay}
+if [ ! -d ${downpath} ];then    
+   mkdir -p ${downpath}
+fi
+
+# 设置备份文件路径
+bakpath=${Currpath}/Backup/${LastDay}
+if [ ! -d ${bakpath} ];then
+   mkdir -p ${bakpath}
+fi
+
+# 设置错误文件路径
+errorpath=${Currpath}/Error/${LastDay}
+if [ ! -d ${errorpath} ];then
+   mkdir -p ${errorpath}
+fi
+
+# 设置日志路径
+logpath=${Currpath}/Log/${LastDay}
+if [ ! -d ${logpath} ];then
+   mkdir -p ${logpath}
+fi
+
+echo `date` 是否补录flag：${flag} 
+echo `date` 是否补录flag：${flag} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 交易日期为：${LastDay}
+echo `date` 交易日期为：${LastDay} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 当前目录为：${Currpath} 
+echo `date` 当前目录为：${Currpath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` FTP文件目录为：${ftppath}
+echo `date` FTP文件目录为：${ftppath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 当前日志路径为：${logpath} 
+echo `date` 当前日志路径为：${logpath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` Sqlldr处理路径为：${datapath}
+echo `date` Sqlldr处理路径为：${datapath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 本地数据下载路径为：${downpath} 
+echo `date` 本地数据下载路径为：${downpath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 数据备份路径为：${bakpath}
+echo `date` 数据备份路径为：${bakpath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 导入错误文件路径为：${errorpath}
+echo `date` 导入错误文件路径为：${errorpath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 数据库sid为：${sid}
+echo `date` 数据库sid为：${sid} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 数据库用户名为：${user} 
+echo `date` 数据库用户名为：${user} >>${logpath}/DownLoadLog_${LastDay}.log
+
+echo `date` 数据库密码为：${passwd}
+echo `date` 数据库密码为：${passwd} >>${logpath}/DownLoadLog_${LastDay}.log
+
+cd ${Currpath}
+
+if [ -f ${bakpath}/*${zp_file_flag}*${LastDay}*.tar.gz ] && [ -f ${bakpath}/${gsxt_file_flag}*${LastDay}*.tar.gz ];then
+   echo `date`  ${LastDay}数据文件已导入完成，不可重复导入！
+   echo `date`  ${LastDay}数据文件已导入完成，不可重复导入！>>${logpath}/DownLoadLog_${LastDay}.log
+   echo >>${logpath}/DownLoadLog_${LastDay}.log
+   exit 0
+fi
+
+# 判断当前时间，超过7点退出
+currhour=`date "+%H"`
+
+#定义变量，用于标识公司系统和中平数据是否都处理完成
+flag=0
+
+#定义错误变量标识
+is_gsxt_error=0
+is_zp_error=0
+
+while [ ${flag} -lt 2 ]
+do
+  if [ ${currhour} -ge 17 ];then
+      echo `date` 时间已到早上7点，不再下载数据文件！
+      echo `date` 时间已到早上7点，不再下载数据文件！>>${logpath}/DownLoadLog_${LastDay}.log
+      break
+  else
+      echo `date` 当前时间:`date "+%Y%m%d %H:%M:%S"`
+
+#read -n 1 -p "Press any key to continue..."
+
+      echo `date` ============================= 中平系统 ============================= 
+      echo `date` ============================= 中平系统 ============================= >>${logpath}/DownLoadLog_${LastDay}.log
+
+      if [ -f ${ftppath}/*${zp_file_flag}*${LastDay}*.tar.gz ];then
+
+          if [ ! -f ${bakpath}/*${zp_file_flag}*${LastDay}*.tar.gz ];then
+
+              if [ ${is_zp_error} -eq 0 ];then
+                  #先停止5分钟，再正式开始导数，防止数据未传输完成。
+                  sleep 300
+
+                  echo `date` 中平系统${LastDay}的数据文件已到，开始移动数据文件至sqlldr处理目录下.
+                  echo `date` 中平系统${LastDay}的数据文件已到，开始移动数据文件至sqlldr处理目录下. >>${logpath}/DownLoadLog_${LastDay}.log
+
+                  #设置中平系统已被处理，变量加1
+                  ((flag++))
+
+                  #复制中平系统数据文件至sqlldr downpath处理目录
+                  cp ${ftppath}/*${zp_file_flag}*${LastDay}*.tar.gz ${downpath}/
+
+                  cd ${downpath}
+
+# read -n 1 -p "Press any key to continue..."               
+
+                  if [ -f ${downpath}/*${zp_file_flag}*${LastDay}*.tar.gz ];then
+                      echo `date` 开始解压中平系统数据文件至datapath目录.
+                      echo `date` 开始解压中平系统数据文件至datapath目录. >>${logpath}/DownLoadLog_${LastDay}.log
+                      tar -xvf ${downpath}/*${zp_file_flag}*${LastDay}*.tar.gz -C ${datapath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                      cd ${datapath}
+
+                      if ls ${datapath}/*.txt >/dev/null 2>&1;
+                      then
+                          echo `date` 解压完成！开始解析导入中平系统${LastDay}数据.
+                          echo `date` 解压完成！开始解析导入中平系统${LastDay}数据. >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                          for txtfile in *.txt
+                          do
+                             echo `date` ${txtfile}文件正在导入...
+                             echo `date` ${txtfile}文件正在导入... >>${logpath}/DownLoadLog_${LastDay}.log
+
+                             #中平系统文件命名格式：表名_日期.txt
+                             #获取表名
+                             table_name=`basename ${txtfile} _${LastDay}.txt`
+                             
+                             echo `date` table_name=${table_name}
+                             echo `date` table_name=${table_name} >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                             sqlldr userid=${user}/${passwd}@${sid} control=${Currpath}/Control/${table_name}.CTL data=${datapath}/${txtfile} errors=9999999 direct=true streamsize=10485760 date_cache=5000 bad=${errorpath}/${table_name}.bad log=${logpath}/${table_name}_${LastDay}.log
+                  
+                             if [ -f ${errorpath}/${table_name}.bad ];then
+                                  echo `date` ${txtfile}文件导入失败！
+                                  echo `date` ${txtfile}文件导入失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                             else
+                                  echo `date` ${txtfile}文件导入成功！
+                                  echo `date` ${txtfile}文件导入成功！>>${logpath}/DownLoadLog_${LastDay}.log
+                             fi
+
+                             echo `date` 开始删除${txtfile}文件！
+                             echo `date` 开始删除${txtfile}文件！>>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                             rm -rf ${txtfile}
+
+                             if [ ! -f ${txtfile} ];then
+                                  echo `date` 删除${txtfile}文件成功！
+                                  echo `date` 删除${txtfile}文件成功！>>${logpath}/DownLoadLog_${LastDay}.log
+                             fi
+
+                             echo `date` ------------------------------------>>${logpath}/DownLoadLog_${LastDay}.log 
+                          done
+                 
+                          echo `date` 中平系统${LastDay}数据导入完成！
+                          echo `date` 中平系统${LastDay}数据导入完成！>>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                          echo `date` 开始移动中平系统数据文件至备份目录！
+                          echo `date` 开始移动中平系统数据文件至备份目录！>>${logpath}/DownLoadLog_${LastDay}.log
+                          mv ${downpath}/*${zp_file_flag}*${LastDay}*.tar.gz ${bakpath}/
+
+# read -n 1 -p "Press any key to continue..."
+
+                          if [ -f ${bakpath}/*${zp_file_flag}*${LastDay}*.tar.gz ];then
+                              echo `date` ${LastDay}的数据文件至备份目录成功！
+                              echo `date` ${LastDay}的数据文件至备份目录成功！>>${logpath}/DownLoadLog_${LastDay}.log
+                              echo `date` 开始调用存储过程，同步机构和人员数据！
+                              echo `date` 开始调用存储过程，同步机构和人员数据！>>${logpath}/DownLoadLog_${LastDay}.log
+
+
+# read -n 1 -p "Press any key to continue..."
+                     
+                              sqlplus -S /nolog @${Currpath}/Sql/exec_syn_proc.sql ${user} ${passwd} ${sid} ${logpath} ${flag} ${LastDay}
+
+                              echo `date` 同步机构和人员数据完成！
+                              echo `date` 同步机构和人员数据完成！>>${logpath}/DownLoadLog_${LastDay}.log
+
+                          else
+                              echo `date` 移动${LastDay}的数据文件至备份目录失败！
+                              echo `date` 移动${LastDay}的数据文件至备份目录失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                              #设置错误标志
+                              is_zp_error=1
+                              rm -rf ${downpath}/*.*
+                              rm -rf ${datapath}/*.*
+                          fi                
+
+                      else
+                          echo `date` 没有txt数据文件！解压失败！
+                          echo `date` 没有txt数据文件！解压失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                          #设置错误标志
+                          is_zp_error=1
+                          rm -rf ${downpath}/*.*
+                          rm -rf ${datapath}/*.*
+                      fi
+                  else
+                      echo `date` 移动数据文件至sqlldr处理目录失败！
+                      echo `date` 移动数据文件至sqlldr处理目录失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                      #设置错误标志
+                      is_zp_error=1
+                      rm -rf ${downpath}/*.*
+                      rm -rf ${datapath}/*.*
+                  fi
+              else
+                  echo `date`  中平系统${LastDay}数据文件导入发生错误，请查看相关日志！！
+                  echo `date`  中平系统${LastDay}数据文件导入发生错误，请查看相关日志！！>>${logpath}/DownLoadLog_${LastDay}.log
+                  rm -rf ${downpath}/*.*
+                  rm -rf ${datapath}/*.*
+              fi
+          else
+              if [ ${flag} -lt 2 ];then
+                  flag=1
+              fi
+              echo `date`  中平系统${LastDay}数据文件已导入完成，不可重复导入！
+              echo `date`  中平系统${LastDay}数据文件已导入完成，不可重复导入！>>${logpath}/DownLoadLog_${LastDay}.log
+              rm -rf ${downpath}/*.*
+              rm -rf ${datapath}/*.*
+          fi
+      else
+          echo `date` 中平系统${LastDay}的数据文件还未到齐，5分钟后再次检测......
+          echo `date` 中平系统${LastDay}的数据文件还未到齐，5分钟后再次检测...... >>${logpath}/DownLoadLog_${LastDay}.log
+          rm -rf ${downpath}/*.*
+          rm -rf ${datapath}/*.*
+          sleep 300
+      fi
+
+      echo `date` ============================= 公司系统 =============================   
+      echo `date` ============================= 公司系统 =============================   >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+      if [ -f ${ftppath}/*${gsxt_file_flag}*${LastDay}*.tar.gz ];then
+
+          if [ ! -f ${bakpath}/*${gsxt_file_flag}*${LastDay}*.tar.gz ];then
+
+              if [ ${is_gsxt_error} -eq 0 ];then
+                  #先停止5分钟，再正式开始导数，防止数据未传输完成。
+                  sleep 300
+
+                  echo `date` 公司系统${LastDay}的数据文件已到，开始移动数据文件至sqlldr处理目录下.
+                  echo `date` 公司系统${LastDay}的数据文件已到，开始移动数据文件至sqlldr处理目录下. >>${logpath}/DownLoadLog_${LastDay}.log
+   
+                  #设置公司系统已被处理完成，变量加1
+                  ((flag++))
+ 
+                  #复制公司系统数据文件至sqlldr downpath处理目录
+                  cp ${ftppath}/*${gsxt_file_flag}*${LastDay}*.tar.gz ${downpath}/
+
+                  cd ${downpath}
+
+# read -n 1 -p "Press any key to continue..."               
+
+                  if [ -f ${downpath}/*${gsxt_file_flag}*${LastDay}*.tar.gz ];then
+                      echo `date` 开始解压公司系统数据文件至datapath目录.
+                      echo `date` 开始解压公司系统数据文件至datapath目录. >>${logpath}/DownLoadLog_${LastDay}.log
+                      tar -xvf ${downpath}/*${gsxt_file_flag}*${LastDay}*.tar.gz -C ${datapath} >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                      cd ${datapath}
+
+                      if ls ${datapath}/*.txt >/dev/null 2>&1;
+                      then
+                          echo `date` 解压完成！开始解析导入公司系统${LastDay}数据.
+                          echo `date` 解压完成！开始解析导入公司系统${LastDay}数据. >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                          for txtfile in *.txt
+                          do
+                             echo `date` ${txtfile}文件正在导入...
+                             echo `date` ${txtfile}文件正在导入... >>${logpath}/DownLoadLog_${LastDay}.log
+
+                             #公司系统文件命名格式：99200000000_表名_0000_清算日期_A_省别代码_0001.txt
+                             #获取表名:先截取99200000000_右边的，再截取_0000_左边的
+                             table_name=${txtfile#*99200000000_}
+                             table_name=${table_name%_0000_*}
+                             
+                             echo `date` table_name=${table_name}
+                             echo `date` table_name=${table_name} >>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                             sqlldr userid=${user}/${passwd}@${sid} control=${Currpath}/Control/${table_name}.CTL data=${datapath}/${txtfile} errors=9999999 direct=true streamsize=10485760 date_cache=5000 bad=${errorpath}/${table_name}.bad log=${logpath}/${table_name}_${LastDay}.log
+                  
+                             if [ -f ${errorpath}/${table_name}.bad ];then
+                                  echo `date` ${txtfile}文件导入失败！
+                                  echo `date` ${txtfile}文件导入失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                             else
+                                  echo `date` ${txtfile}文件导入成功！
+                                  echo `date` ${txtfile}文件导入成功！>>${logpath}/DownLoadLog_${LastDay}.log
+                             fi
+
+                             echo `date` 开始删除${txtfile}文件！
+                             echo `date` 开始删除${txtfile}文件！>>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                             rm -rf ${txtfile}
+
+                             if [ ! -f ${txtfile} ];then
+                                  echo `date` 删除${txtfile}文件成功！
+                                  echo `date` 删除${txtfile}文件成功！>>${logpath}/DownLoadLog_${LastDay}.log
+                             fi
+
+                             echo `date` ------------------------------------>>${logpath}/DownLoadLog_${LastDay}.log 
+                          done
+                 
+                          echo `date` 公司系统${LastDay}数据导入完成！
+                          echo `date` 公司系统${LastDay}数据导入完成！>>${logpath}/DownLoadLog_${LastDay}.log
+
+# read -n 1 -p "Press any key to continue..."
+
+                          echo `date` 开始移动公司系统数据文件至备份目录！
+                          echo `date` 开始移动公司系统数据文件至备份目录！>>${logpath}/DownLoadLog_${LastDay}.log
+                          mv ${downpath}/*${gsxt_file_flag}*${LastDay}*.tar.gz ${bakpath}/
+
+# read -n 1 -p "Press any key to continue..."
+
+                          if [ -f ${bakpath}/*${gsxt_file_flag}*${LastDay}*.tar.gz ];then
+                              echo `date` ${LastDay}的数据文件至备份目录成功！
+                              echo `date` ${LastDay}的数据文件至备份目录成功！>>${logpath}/DownLoadLog_${LastDay}.log
+                              echo `date` 开始调用存储过程，生成回单数据！
+                              echo `date` 开始调用存储过程，生成回单数据！>>${logpath}/DownLoadLog_${LastDay}.log
+
+
+# read -n 1 -p "Press any key to continue..."
+                     
+                              sqlplus -S /nolog @${Currpath}/Sql/exec_bill_proc.sql ${user} ${passwd} ${sid} ${logpath} ${flag} ${LastDay}
+
+                              echo `date` ${LastDay}回单数据生成完成！
+                              echo `date` ${LastDay}回单数据生成完成！>>${logpath}/DownLoadLog_${LastDay}.log
+
+                          else
+                              echo `date` 移动${LastDay}的数据文件至备份目录失败！
+                              echo `date` 移动${LastDay}的数据文件至备份目录失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                              #设置错误标志
+                              is_gsxt_error=1
+                              rm -rf ${downpath}/*.*
+                              rm -rf ${datapath}/*.*
+                          fi                
+
+                      else
+                          echo `date` 没有txt数据文件！解压失败！
+                          echo `date` 没有txt数据文件！解压失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                          #设置错误标志
+                          is_gsxt_error=1
+                          rm -rf ${downpath}/*.*
+                          rm -rf ${datapath}/*.*
+                      fi
+                  else
+                      echo `date` 移动数据文件至sqlldr处理目录失败！
+                      echo `date` 移动数据文件至sqlldr处理目录失败！>>${logpath}/DownLoadLog_${LastDay}.log
+                      #设置错误标志
+                      is_gsxt_error=1
+                      rm -rf ${downpath}/*.*
+                      rm -rf ${datapath}/*.*
+                  fi
+              else
+                  echo `date`  公司系统${LastDay}数据文件导入发生错误，请查看相关日志！！
+                  echo `date`  公司系统${LastDay}数据文件导入发生错误，请查看相关日志！！>>${logpath}/DownLoadLog_${LastDay}.log
+                  rm -rf ${downpath}/*.*
+                  rm -rf ${datapath}/*.*
+              fi
+          else
+              if [ ${flag} -lt 2 ];then
+                 flag=1
+              fi
+              echo `date`  公司系统${LastDay}数据文件已导入完成，不可重复导入！
+              echo `date`  公司系统${LastDay}数据文件已导入完成，不可重复导入！>>${logpath}/DownLoadLog_${LastDay}.log
+              rm -rf ${downpath}/*.*
+              rm -rf ${datapath}/*.*
+          fi
+      else
+           echo `date` 公司系统${LastDay}的数据文件还未到齐，5分钟后再次检测......
+           echo `date` 公司系统${LastDay}的数据文件还未到齐，5分钟后再次检测...... >>${logpath}/DownLoadLog_${LastDay}.log
+           rm -rf ${downpath}/*.*
+           rm -rf ${datapath}/*.*
+           sleep 300
+      fi
+
+      if [ ${flag} -eq 2 ];then
+          echo `date`  ==================================================================== >>${logpath}/DownLoadLog_${LastDay}.log
+          echo `date`  ${LastDay}数据已全部处理完成！退出！
+          echo `date`  ${LastDay}数据已全部处理完成！退出！>>${logpath}/DownLoadLog_${LastDay}.log
+      fi
+  fi
+done 
+
+# read -n 1 -p "Press any key to continue..."
+
+rm -rf ${datapath}/*
+rm -rf ${downpath}/*
+echo 
+echo >>${logpath}/DownLoadLog_${LastDay}.log
+
+exit 1
+
